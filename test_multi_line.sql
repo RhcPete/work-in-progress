@@ -84,7 +84,7 @@
 	INNER JOIN @activity_size new
 		ON old.activity_id = new.activity_id
 	;
-	SELECT * FROM @activity_times;
+
 	-- Final query
 	WITH res AS (
 		SELECT CONVERT(VARCHAR(20), att.staff_id) 
