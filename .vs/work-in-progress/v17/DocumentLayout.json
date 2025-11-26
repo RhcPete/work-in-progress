@@ -1,0 +1,39 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\petes\\Documents\\GitHub\\work-in-progress\\",
+  "Documents": [],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 1,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedHeight": 200,
+          "SelectedChildIndex": -1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{25f3feea-a56f-40f5-9ad6-b85f135d419a}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:1:0:{3eb44d79-dda1-4580-b810-0808975173e4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{3eb44d79-dda1-4580-b810-0808975173e4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{75188d03-9892-4ae2-abf1-207126247ce5}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
