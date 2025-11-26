@@ -1,3 +1,11 @@
+-- Get T-Level student and set as parameter
+DECLARE @student_id NUMERIC(16,0);
+
+-- Start with L6 student
+SELECT @student_id = s_id
+FROM capd_student 
+WHERE s_studentreference = '0056741';
+
 -- CTE contains students that are current or applicants and have a periodic in the current year
 -- Applicants ?
 WITH students AS (
@@ -33,9 +41,9 @@ WITH students AS (
 		ON st.gender_expression = gender_exp.vc_code
 		AND gender_exp.vc_domain = 'genderexpression'
 	WHERE sess.cy_offset = 0
-	AND sess.ht_half_term = 'AU1'
-	--AND st.student_reference = '0060005' 
-	) --SELECT * FROM students
+	AND sess.ht_half_term = 'AU1' 
+	AND st.student_id = @student_id
+	)
 -- CTE Addapp contains the details from the relevant student custom record
 , addapp AS (
 	SELECT aa.sc_id aa_custom_id
@@ -102,7 +110,7 @@ WITH students AS (
 	)
 -- CTE for Students enrolment details 
 , enrolments AS (
-SELECT cs_en.e_student student_id
+	SELECT cs_en.e_student student_id
 	, pr.m_id prog_id
 	, pr.m_reference prog_ref
 	, pr.m_name prog_name
@@ -120,9 +128,29 @@ SELECT cs_en.e_student student_id
 	, COALESCE(pr.m_name,cs.m_name) module_name
 	, IIF(pr_lars.lld_learnaimref IS NOT NULL,cs.m_name,COALESCE(cs_lars.lld_learnaimreftitle,cs.m_name)) learning_aim_title
 	, COALESCE(pr_lars.lld_learnaimref,cs_lars.lld_learnaimref) learning_aim_ref
-	, CONVERT(INT,COALESCE(cs_isr.mi_ilrplanlearnhours,0)) planned_learning_hours
-	, CONVERT(INT,IIF(COALESCE(pr_isr.mi_planlearnhoursyear1,0) > 0,pr_isr.mi_planlearnhoursyear1,COALESCE(cs_isr.mi_planlearnhoursyear1,0))) planned_learning_hours_y1
-	, CONVERT(INT,IIF(COALESCE(pr_isr.mi_planlearnhoursyear2,0) > 0,pr_isr.mi_planlearnhoursyear2,COALESCE(cs_isr.mi_planlearnhoursyear2,0))) planned_learning_hours_y2
+	, CASE WHEN pr_en.e_level = 'TL' THEN 
+			CONVERT(INT,COALESCE(en_per.epi_offthejobtraininghrs,0)) 
+		ELSE
+			CONVERT(INT,COALESCE(cs_isr.mi_ilrplanlearnhours,0)) 
+		END planned_learning_hours
+	, CASE WHEN pr_en.e_level = 'TL' THEN 
+			IIF(
+				pr_yr.ay_startyear = current_year.ay_startyear
+				,CONVERT(INT,COALESCE(en_per.epi_offthejobtraininghrs,0)) 
+				,0
+			)
+		ELSE
+			CONVERT(INT,IIF(COALESCE(pr_isr.mi_planlearnhoursyear1,0) > 0,pr_isr.mi_planlearnhoursyear1,COALESCE(cs_isr.mi_planlearnhoursyear1,0))) 
+		END planned_learning_hours_y1
+	, CASE WHEN pr_en.e_level = 'TL' THEN 
+			IIF(
+				pr_yr.ay_startyear < current_year.ay_startyear
+				,CONVERT(INT,COALESCE(en_per.epi_offthejobtraininghrs,0)) 
+				,0
+			)
+		ELSE
+			CONVERT(INT,IIF(COALESCE(pr_isr.mi_planlearnhoursyear2,0) > 0,pr_isr.mi_planlearnhoursyear2,COALESCE(cs_isr.mi_planlearnhoursyear2,0))) 
+		END planned_learning_hours_y2
 	, CONVERT(INT,COALESCE(pr_isr.mi_ilrplaneephours,0)) planned_eep_hours
 	, CONVERT(INT,IIF(COALESCE(pr_isr.mi_planothhoursyear1,0) > 0,pr_isr.mi_planothhoursyear1,COALESCE(cs_isr.mi_planothhoursyear1,0))) planned_other_hours_y1
 	, CONVERT(INT,IIF(COALESCE(pr_isr.mi_planothhoursyear2,0) > 0,pr_isr.mi_planothhoursyear2,COALESCE(cs_isr.mi_planothhoursyear2,0))) planned_other_hours_y2
@@ -143,16 +171,21 @@ SELECT cs_en.e_student student_id
 		ON cs_en_isr.ei_q02m02 = cs_lars.lld_learnaimref
 	INNER JOIN capd_moduleenrolment pr_en
 		ON cs_en.e_parent = pr_en.e_id
-
-		AND( pr_en.e_status = '1'
-		OR( pr_en.e_status = '2'
-		AND pr_en.e_start BETWEEN current_year.ay_start AND current_year.ay_end -- Status 1 is Current, and 2 is completed
+		AND (pr_en.e_status = '1'
+			OR ( pr_en.e_status = '2'
+			AND pr_en.e_start BETWEEN current_year.ay_start AND current_year.ay_end -- Status 1 is Current, and 2 is completed
+			)
 		)
-	)
 		AND pr_en.e_type = 'PR'
 	INNER JOIN mis.academic_year_sessions pr_yr
 		ON pr_en.e_start BETWEEN pr_yr.ay_start AND pr_yr.ay_end
 		AND pr_yr.ht_half_term = 'AU1'
+	-- For T-Levels the planned hours are on the enrolment periodic type "PH" these all go into Year 1
+	LEFT JOIN capd_enrolmentperiodicilr en_per
+		ON pr_en.e_id = en_per.epi_enrolment
+		AND en_per.epi_type = 'PH'
+		AND en_per.epi_start BETWEEN current_year.ay_start AND current_year.ay_end
+		AND pr_en.e_level = 'TL'
 	INNER JOIN capd_module pr
 		ON pr_en.e_module = pr.m_id
 	LEFT JOIN capd_enrolmentisr pr_en_isr
@@ -163,19 +196,25 @@ SELECT cs_en.e_student student_id
 		ON pr.m_id = pr_isr.mi_id
 	LEFT JOIN capd_session sess
 		ON cs.m_modulesession = sess.s_id
-	WHERE current_year.cy_offset = 0 AND current_year.ht_half_term = 'AU1' AND 
-	cs_en.e_type = 'CS'
-	-- The course is not needed, as the program already contains the course
-	
-		AND(
+	WHERE current_year.cy_offset = 0 
+	AND current_year.ht_half_term = 'AU1' 
+	AND cs_en.e_type = 'CS'
+	AND (
 		cs_en.e_status = '1' 
-
 		OR ( cs_en.e_status = '2'
 			AND cs_en.e_start BETWEEN current_year.ay_start AND current_year.ay_end
 			
+			)
 		)
-	)
-	)
+	-- If the program is a T-Level only get the course that has a main aim of 5
+	AND (pr_en.e_level <> 'TL'
+		OR (
+			pr_en.e_level = 'TL'
+			AND COALESCE(cs_en_isr.ei_ilraimtype,'0') = '5'
+			)
+		)
+		
+	) 
 SELECT st.student_id StudentID
 , st.ay_startyear AcademicYear
 , start_yr.from_year startYear
@@ -251,68 +290,59 @@ SELECT st.student_id StudentID
 , app.sa_reference ApplicationReference
 , NULL EnrolmentStaffId
 , NULL EnrolmentStaffReference 
-,	st.ay_startyear,
-	start_yr.from_year,
+, st.ay_startyear
+, start_yr.from_year
+
+,
 	CASE
-		WHEN st.ay_startyear - start_yr.from_year = 0 THEN 'Y1'
+		WHEN st.ay_startyear = start_yr.from_year THEN 'Y1'
 		WHEN st.ay_startyear - start_yr.from_year = 1 THEN 'Y2'
 		WHEN st.ay_startyear - start_yr.from_year = 2 THEN 'Y3'
 		ELSE '>3'
-	END AS StudentYear,
-
-
-
+	END AS StudentYear
+,
 	CASE 
 		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_learning_hours_y1
-		--WHEN st.ay_startyear - start_yr.from_year = 1 AND pr_startyear = '2025' THEN en.planned_learning_hours_y1
-		WHEN start_yr.from_year = pr_startyear THEN en.planned_learning_hours_y1
-		
+		WHEN start_yr.from_year = en.pr_startyear THEN en.planned_learning_hours_y1
 		WHEN st.ay_startyear != start_yr.from_year THEN 0
-	END AS adj_PLH1,
+	END AS adj_PLH1
+,
 
 	CASE
 		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_learning_hours_y2
 		WHEN st.ay_startyear - start_yr.from_year = 1 THEN en.planned_learning_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - pr_startyear = 1 THEN en.planned_learning_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - pr_startyear = 2 THEN en.planned_learning_hours_y2
+		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 1 THEN en.planned_learning_hours_y2
+		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 2 THEN en.planned_learning_hours_y2
 		ELSE '0'
-	END AS adj_PLH2,
+	END AS adj_PLH2
+,
 
 	CASE
 		
 		WHEN st.ay_startyear - start_yr.from_year = 2 THEN en.planned_learning_hours_y2
 		ELSE '0'
-	END AS adj_PLH3,
+	END AS adj_PLH3
+,
 
 	CASE 
 		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_other_hours_y1
-		--WHEN st.ay_startyear - start_yr.from_year = 1 AND pr_startyear = '2025' THEN en.planned_learning_hours_y1
-		WHEN start_yr.from_year = pr_startyear THEN en.planned_other_hours_y1
-		
+		--WHEN st.ay_startyear - start_yr.from_year = 1 AND en.pr_startyear = '2025' THEN en.planned_learning_hours_y1
+		WHEN start_yr.from_year = en.pr_startyear THEN en.planned_other_hours_y1
 		WHEN st.ay_startyear != start_yr.from_year THEN 0
-	END AS adj_EEP1,
-
+	END AS adj_EEP1
+,
 	CASE
 		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_other_hours_y2
 		WHEN st.ay_startyear - start_yr.from_year = 1 THEN en.planned_other_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - pr_startyear = 1 THEN en.planned_other_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - pr_startyear = 2 THEN en.planned_other_hours_y2
+		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 1 THEN en.planned_other_hours_y2
+		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 2 THEN en.planned_other_hours_y2
 		ELSE '0'
-	END AS adj_EEP2,
-
+	END AS adj_EEP2
+,
 	CASE
-		
 		WHEN st.ay_startyear - start_yr.from_year = 2 THEN en.planned_other_hours_y2
 		ELSE '0'
 	END AS adj_EEP3
-
-	 --en.planned_other_hours_y1
-
-	
-	
-
-	
-	
 FROM students st
 INNER JOIN capd_student un_st
 	ON st.student_id = un_st.s_id
@@ -330,4 +360,4 @@ LEFT JOIN enrolments en
 	ON st.student_id = en.student_id
 LEFT JOIN capd_studentapplication app
 	ON st.student_id = app.sa_student
-	AND app.sa_reference LIKE rhc.AppYearRef()
+	AND app.sa_reference LIKE rhc.AppYearRef();
