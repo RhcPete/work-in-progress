@@ -322,11 +322,20 @@ SELECT st.student_id StudentID
 		WHEN st.ay_startyear - start_yr.from_year = 2 THEN en.planned_learning_hours_y2
 		ELSE '0'
 	END AS adj_PLH3
-,
+-- st.ay_startyear is the current year
+-- start_yr.from_year is the year they started at the college on any program they are enrolled on
+-- en.pr_startyear is the program start year
 
-	CASE 
+-- If the student started this year - year one
+-- If the student started last year - year two 
+-- If the student started 2 years ago - year 3
+, IIF(st.ay_startyear = start_yr.from_year, en.planned_other_hours_y1, 0) 	 adj_EEP1
+, IIF(st.ay_startyear - 1 = start_yr.from_year 
+	AND st.ay_startyear = en.pr_startyear, en.planned_other_hours_y1, 0) 	 adj_EEP2
+, IIF(st.ay_startyear - 2 = start_yr.from_year, en.planned_other_hours_y2, 0) 	 adj_EEP3
+
+, CASE 
 		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_other_hours_y1
-		--WHEN st.ay_startyear - start_yr.from_year = 1 AND en.pr_startyear = '2025' THEN en.planned_learning_hours_y1
 		WHEN start_yr.from_year = en.pr_startyear THEN en.planned_other_hours_y1
 		WHEN st.ay_startyear != start_yr.from_year THEN 0
 	END AS adj_EEP1
