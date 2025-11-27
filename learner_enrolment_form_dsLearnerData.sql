@@ -4,7 +4,7 @@ DECLARE @student_id NUMERIC(16,0);
 -- Start with L6 student
 SELECT @student_id = s_id
 FROM capd_student 
-WHERE s_studentreference = '0056741';
+WHERE s_studentreference = '0055516';
 
 -- CTE contains students that are current or applicants and have a periodic in the current year
 -- Applicants ?
@@ -42,7 +42,6 @@ WITH students AS (
 		AND gender_exp.vc_domain = 'genderexpression'
 	WHERE sess.cy_offset = 0
 	AND sess.ht_half_term = 'AU1' 
-	AND st.student_id = @student_id
 	)
 -- CTE Addapp contains the details from the relevant student custom record
 , addapp AS (
@@ -96,18 +95,20 @@ WITH students AS (
 	, addr.a_name
 	, addr.a_reference )
 , first_date_started AS (
-	SELECT st.s_id student_id
+	SELECT st.student_id
+	, MIN(sess.ay_startyear) - st.ay_startyear student_offset
 	, MIN(sess.ay_startyear) from_year
 	FROM capd_moduleenrolment enrol
-	INNER JOIN capd_student st
-		ON enrol.e_student = st.s_id
+	INNER JOIN students st
+		ON enrol.e_student = st.student_id
 	INNER JOIN mis.academic_year_sessions sess
 		ON enrol.e_start BETWEEN sess.ay_start AND sess.ay_end
 		AND sess.ht_half_term = 'AU1'
 	WHERE enrol.e_status = '1'
 	AND enrol.e_type = 'PR'
-	GROUP BY st.s_id
-	)
+	GROUP BY st.student_id
+	, st.ay_startyear
+	) 
 -- CTE for Students enrolment details 
 , enrolments AS (
 	SELECT cs_en.e_student student_id
@@ -159,6 +160,7 @@ WITH students AS (
 	, sess.s_id yr_session_id
 	, sess.s_academicyear academic_year
 	, pr_yr.ay_startyear pr_startyear
+	, pr_yr.ay_startyear - sess.s_academicyear prog_offset
 	FROM capd_moduleenrolment cs_en
 	CROSS JOIN mis.academic_year_sessions as current_year
 	INNER JOIN capd_module cs
@@ -292,66 +294,12 @@ SELECT st.student_id StudentID
 , NULL EnrolmentStaffReference 
 , st.ay_startyear
 , start_yr.from_year
-
-,
-	CASE
-		WHEN st.ay_startyear = start_yr.from_year THEN 'Y1'
-		WHEN st.ay_startyear - start_yr.from_year = 1 THEN 'Y2'
-		WHEN st.ay_startyear - start_yr.from_year = 2 THEN 'Y3'
-		ELSE '>3'
-	END AS StudentYear
-,
-	CASE 
-		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_learning_hours_y1
-		WHEN start_yr.from_year = en.pr_startyear THEN en.planned_learning_hours_y1
-		WHEN st.ay_startyear != start_yr.from_year THEN 0
-	END AS adj_PLH1
-,
-
-	CASE
-		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_learning_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 1 THEN en.planned_learning_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 1 THEN en.planned_learning_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 2 THEN en.planned_learning_hours_y2
-		ELSE '0'
-	END AS adj_PLH2
-,
-
-	CASE
-		
-		WHEN st.ay_startyear - start_yr.from_year = 2 THEN en.planned_learning_hours_y2
-		ELSE '0'
-	END AS adj_PLH3
--- st.ay_startyear is the current year
--- start_yr.from_year is the year they started at the college on any program they are enrolled on
--- en.pr_startyear is the program start year
-
--- If the student started this year - year one
--- If the student started last year - year two 
--- If the student started 2 years ago - year 3
-, IIF(st.ay_startyear = start_yr.from_year, en.planned_other_hours_y1, 0) 	 adj_EEP1
-, IIF(st.ay_startyear - 1 = start_yr.from_year 
-	AND st.ay_startyear = en.pr_startyear, en.planned_other_hours_y1, 0) 	 adj_EEP2
-, IIF(st.ay_startyear - 2 = start_yr.from_year, en.planned_other_hours_y2, 0) 	 adj_EEP3
-
-, CASE 
-		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_other_hours_y1
-		WHEN start_yr.from_year = en.pr_startyear THEN en.planned_other_hours_y1
-		WHEN st.ay_startyear != start_yr.from_year THEN 0
-	END AS adj_EEP1
-,
-	CASE
-		WHEN st.ay_startyear = start_yr.from_year  THEN en.planned_other_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 1 THEN en.planned_other_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 1 THEN en.planned_other_hours_y2
-		WHEN st.ay_startyear - start_yr.from_year = 2 AND st.ay_startyear - en.pr_startyear = 2 THEN en.planned_other_hours_y2
-		ELSE '0'
-	END AS adj_EEP2
-,
-	CASE
-		WHEN st.ay_startyear - start_yr.from_year = 2 THEN en.planned_other_hours_y2
-		ELSE '0'
-	END AS adj_EEP3
+, IIF(en.prog_offset = start_yr.student_offset,en.planned_learning_hours_y1,0) adj_PLH1
+, IIF(start_yr.student_offset < 0,IIF(en.prog_offset = 0,en.planned_learning_hours_y1,en.planned_learning_hours_y2),0) adj_PLH2
+, IIF(start_yr.student_offset < -1,IIF(en.prog_offset = 0,en.planned_learning_hours_y1,en.planned_learning_hours_y2),0) adj_PLH3
+, IIF(en.prog_offset = start_yr.student_offset,en.planned_other_hours_y1,0) adj_EEP1
+, IIF(start_yr.student_offset < 0,IIF(en.prog_offset = 0,en.planned_other_hours_y1,en.planned_other_hours_y2),0) adj_EEP2
+, IIF(start_yr.student_offset < -1,IIF(en.prog_offset = 0,en.planned_other_hours_y1,en.planned_other_hours_y2),0) adj_EEP3
 FROM students st
 INNER JOIN capd_student un_st
 	ON st.student_id = un_st.s_id
