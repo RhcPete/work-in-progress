@@ -1,3 +1,5 @@
+ALTER PROCEDURE [pbi].[sp_populate_ru_teacher_activity] AS
+BEGIN
 	DECLARE @academic_year INT;
 	DECLARE @year_start DATETIME;
 	SELECT @academic_year = ay_startyear
@@ -85,41 +87,63 @@
 		ON old.activity_id = new.activity_id
 	;
 
-	-- Final query
-	WITH res AS (
-		SELECT CONVERT(VARCHAR(20), att.staff_id) 
-			+ '_' + CONVERT(VARCHAR(20),CONVERT(BIGINT,CONVERT(DATETIME,ts.calendar_date)))
-			+ '_' + CONVERT(VARCHAR,ts.lesson_num) date_key
-		, ts.week_number
-		, ts.calendar_date
-		, ts.lesson_num
-		, ts.day_of_week
-		, att.activity_id
-		, att.staff_id
-		, att.no_of_students
-		, staff.preferred_name
-		, staff.surname
-		, staff.staff_reference
-		, CONVERT(TIME,att.activity_time) from_time
-		, CONVERT(TIME,att.activity_end) to_time
-		, act.a_name activity_name
-		, act.a_reference activity_ref
-		, act.a_reference + ',' + staff.staff_reference + ',' + CONVERT(VARCHAR(10),att.no_of_students)  detls
-		FROM pbi.ru_timeslots ts
-		LEFT JOIN @activity_times att
-			ON (att.activity_time >= ts.start_time 
-				AND att.activity_time < ts.end_time)
-			OR (att.activity_end > ts.start_time 
-				AND att.activity_end < ts.end_time)
-			OR (att.activity_time < ts.start_time
-				AND att.activity_end > ts.end_time)
-		LEFT JOIN capd_staffactivity sa
-			ON att.activity_id = sa.sa_activity
-		LEFT JOIN capd_activity act
-			ON att.activity_id = act.a_id
-		LEFT JOIN mis.v_staff_details staff
-			ON sa.sa_activitystaff = staff.staff_id
-		WHERE ts.start_of_week >= @start_of_week
-		)
-	SELECT * FROM res;
-	--ORDER BY calendar_date, lesson_num, staff_id, activity_id;
+	-- Final query inserts to teacher activity PBI table
+	TRUNCATE TABLE pbi.ru_teacher_activity;
+	INSERT INTO pbi.ru_teacher_activity
+           ( date_key
+           , week_number
+           , calendar_date
+           , lesson_num
+           , day_of_week
+           , activity_id
+           , staff_id
+           , no_of_students
+           , preferred_name
+           , surname
+           , staff_reference
+           , from_time
+           , to_time
+           , activity_name
+           , activity_ref
+           , module_id
+           , detls )
+    SELECT CONVERT(VARCHAR(20), sa.sa_id) 
+		+ '_' + CONVERT(VARCHAR(20),CONVERT(BIGINT,CONVERT(DATETIME,ts.calendar_date)))
+		+ '_' + CONVERT(VARCHAR,ts.lesson_num) date_key
+	, ts.week_number
+	, ts.calendar_date
+	, ts.lesson_num
+	, ts.day_of_week
+	, att.activity_id
+	, att.staff_id
+	, att.no_of_students
+	, staff.preferred_name
+	, staff.surname
+	, staff.staff_reference
+	, CONVERT(TIME,att.activity_time) from_time
+	, CONVERT(TIME,att.activity_end) to_time
+	, act.a_name activity_name
+	, act.a_reference activity_ref
+	, ma.ma_activitymodule module_id
+	, act.a_reference + ',' + staff.staff_reference + ',' + CONVERT(VARCHAR(10),att.no_of_students)  detls
+	FROM pbi.ru_timeslots ts
+	LEFT JOIN @activity_times att
+		ON (att.activity_time >= ts.start_time 
+			AND att.activity_time < ts.end_time)
+		OR (att.activity_end > ts.start_time 
+			AND att.activity_end < ts.end_time)
+		OR (att.activity_time < ts.start_time
+			AND att.activity_end > ts.end_time)
+	LEFT JOIN capd_staffactivity sa
+		ON att.activity_id = sa.sa_activity
+		AND att.staff_id = sa.sa_activitystaff
+	LEFT JOIN capd_activity act
+		ON sa.sa_activity = act.a_id
+	LEFT JOIN capd_moduleactivity ma
+		ON act.a_id = ma.ma_activity
+	LEFT JOIN mis.v_staff_details staff
+		ON sa.sa_activitystaff = staff.staff_id
+	WHERE ts.start_of_week >= @start_of_week
+	;
+END
+

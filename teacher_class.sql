@@ -1,5 +1,3 @@
--- a comment
-
 DECLARE @ay_startyear INT;
 DECLARE @from_date DATETIME;
 DECLARE @to_date DATETIME;
